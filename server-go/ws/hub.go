@@ -2,6 +2,7 @@ package ws
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -124,6 +125,24 @@ func (h *Hub) handleMessage(client *Client, msg game.WSInputMessage) {
 		}
 		data, _ := json.Marshal(pongMsg)
 		client.send <- data
+
+	case "deposit_bank_food":
+		if msg.BankFoodAmount > 0 {
+			h.room.DepositBankFood(client.playerID, msg.BankFoodAmount)
+		}
+
+	case "spend_bank_food":
+		if msg.BankFoodAmount > 0 {
+			h.room.SpendBankFood(client.playerID, msg.BankFoodAmount)
+		}
+
+	case "edit_creature":
+		if msg.TargetCreatureID != "" {
+			h.room.UpdateCreature(msg.TargetCreatureID, msg.Name, msg.Color, msg.Elements)
+		} else {
+			cID := fmt.Sprintf("player-%s", client.playerID)
+			h.room.UpdateCreature(cID, msg.Name, msg.Color, msg.Elements)
+		}
 
 	case "admin_set_speed":
 		if msg.SpeedMs > 0 {

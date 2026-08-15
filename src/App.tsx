@@ -33,6 +33,8 @@ export default function App() {
   // Multiplayer State from Go Server
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [yourCreatureId, setYourCreatureId] = useState<string | null>(null);
+  const yourCreatureIdRef = useRef<string | null>(null);
+  yourCreatureIdRef.current = yourCreatureId;
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [serverStats, setServerStats] = useState<ServerStats | null>(null);
   const [chatMessages, setChatMessages] = useState<WSChatMessage[]>([]);
@@ -97,6 +99,7 @@ export default function App() {
           if (authUser) {
             setAuthUser((prev) => prev ? { ...prev, bankFood: data.bankFood } : null);
           }
+          gameWs.send({ type: 'spend_bank_food', bankFoodAmount: amount });
           return true;
         }
       } catch (e) {
@@ -106,6 +109,7 @@ export default function App() {
 
     if (localBankFood >= amount) {
       setLocalBankFood((prev) => Math.max(0, prev - amount));
+      gameWs.send({ type: 'spend_bank_food', bankFoodAmount: amount });
       return true;
     }
     return false;
@@ -129,6 +133,7 @@ export default function App() {
           if (authUser) {
             setAuthUser((prev) => prev ? { ...prev, bankFood: data.bankFood } : null);
           }
+          gameWs.send({ type: 'deposit_bank_food', bankFoodAmount: amount });
           return true;
         }
       } catch (e) {
@@ -137,6 +142,7 @@ export default function App() {
     }
 
     setLocalBankFood((prev) => prev + amount);
+    gameWs.send({ type: 'deposit_bank_food', bankFoodAmount: amount });
     return true;
   }, [authToken, authUser]);
 
@@ -928,6 +934,13 @@ export default function App() {
         targetX: curX,
         targetY: curY,
         targetAngleDeg: curAngle,
+      });
+
+      gameWs.send({
+        type: 'edit_creature',
+        name,
+        color,
+        elements,
       });
 
       setCreatures((prev) =>

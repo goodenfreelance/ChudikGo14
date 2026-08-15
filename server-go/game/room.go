@@ -163,6 +163,21 @@ func (r *Room) AddPlayer(playerID, name, color string, elements []CreatureElemen
 
 	inBase := IsInsideBase(spawnX, spawnY, r.worldRadius)
 
+	bankFood := 0
+	foodEaten := 0
+	kills := 0
+	score := 0
+	energy := 100.0
+	maxEnergy := 100.0
+	if existing, exists := r.creatures[cID]; exists && existing != nil {
+		bankFood = existing.BankFood
+		foodEaten = existing.FoodEaten
+		kills = existing.Kills
+		score = existing.Score
+		energy = existing.Energy
+		maxEnergy = existing.MaxEnergy
+	}
+
 	creature := &Creature{
 		ID:             cID,
 		PlayerID:       playerID,
@@ -179,12 +194,12 @@ func (r *Room) AddPlayer(playerID, name, color string, elements []CreatureElemen
 		VelY:           0,
 		AngularVel:     0,
 		IsSleeping:     false,
-		Energy:         100,
-		MaxEnergy:      100,
-		FoodEaten:      0,
-		BankFood:       0,
+		Energy:         energy,
+		MaxEnergy:      maxEnergy,
+		FoodEaten:      foodEaten,
+		BankFood:       bankFood,
 		InBase:         inBase,
-		Score:          0,
+		Score:          score,
 		StepsCount:     0,
 		MuscleStep:     0,
 		State:          "idle",
@@ -194,12 +209,70 @@ func (r *Room) AddPlayer(playerID, name, color string, elements []CreatureElemen
 		PrevX:          spawnX,
 		PrevY:          spawnY,
 		PrevAngleDeg:   angle,
-		Kills:          0,
+		Kills:          kills,
 		LastActive:     time.Now(),
 	}
 
 	r.creatures[cID] = creature
 	return creature
+}
+
+func (r *Room) DepositBankFood(playerID string, amount int) int {
+	if amount <= 0 {
+		return 0
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cID := fmt.Sprintf("player-%s", playerID)
+	if c, exists := r.creatures[cID]; exists && c != nil {
+		c.BankFood += amount
+		c.Score = c.BankFood * 10
+		return c.BankFood
+	}
+	return 0
+}
+
+func (r *Room) SpendBankFood(playerID string, amount int) bool {
+	if amount <= 0 {
+		return true
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	cID := fmt.Sprintf("player-%s", playerID)
+	if c, exists := r.creatures[cID]; exists && c != nil {
+		if c.BankFood >= amount {
+			c.BankFood -= amount
+			c.Score = c.BankFood * 10
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Room) UpdateCreature(creatureID, name, color string, elements []CreatureElement) *Creature {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	c, exists := r.creatures[creatureID]
+	if !exists || c == nil {
+		return nil
+	}
+
+	if name != "" {
+		c.Name = name
+	}
+	if color != "" {
+		c.Color = color
+	}
+	if len(elements) > 0 {
+		c.Elements = elements
+		c.Forces = CalculatePhysicsForces(elements, c.MuscleStep)
+		c.AngleDeg = DetermineCreatureHeadAngle(elements)
+		c.TargetAngleDeg = c.AngleDeg
+	}
+	return c
 }
 
 func minInt(a, b int) int {

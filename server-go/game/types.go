@@ -136,7 +136,7 @@ type ServerStats struct {
 }
 
 type WSInputMessage struct {
-	Type             string            `json:"type"` // "join", "input", "spawn_food", "chat", "ping", "admin_set_speed", "admin_delete_creature", "admin_control_input", "admin_spawn_creature", "admin_kick_user", "admin_update_config"
+	Type             string            `json:"type"` // "join", "input", "spawn_food", "chat", "ping", "admin_set_speed", "admin_delete_creature", "admin_control_input", "admin_spawn_creature", "admin_kick_user", "admin_update_config", "edit_creature", "deposit_bank_food", "spend_bank_food"
 	Name             string            `json:"name,omitempty"`
 	Color            string            `json:"color,omitempty"`
 	Elements         []CreatureElement `json:"elements,omitempty"`
@@ -156,6 +156,7 @@ type WSInputMessage struct {
 	TargetPlayerID   string            `json:"targetPlayerId,omitempty"`
 	Reason           string            `json:"reason,omitempty"`
 	Config           *WorldConfig      `json:"config,omitempty"`
+	BankFoodAmount   int               `json:"bankFoodAmount,omitempty"`
 }
 
 type WSOutputMessage struct {

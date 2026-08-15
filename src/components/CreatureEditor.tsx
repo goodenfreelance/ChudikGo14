@@ -180,7 +180,7 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
   const triggerRefundNotice = (amount: number, label: string) => {
     if (amount <= 0) return;
     setRefundNotification({
-      message: `+${amount} еды (возврат за ${label})`,
+      message: `+${amount} еды возвращено за: ${label}`,
       amount,
       id: Date.now(),
     });
@@ -189,10 +189,30 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
   // Auto-dismiss refund notification after 2.8s
   useEffect(() => {
     if (refundNotification) {
-      const timer = setTimeout(() => setRefundNotification(null), 2800);
+      const timer = setTimeout(() => setRefundNotification(null), 3200);
       return () => clearTimeout(timer);
     }
   }, [refundNotification]);
+
+  // Clean disconnected elements with 1 click and refund food
+  const handleCleanDisconnected = () => {
+    if (connectivity.disconnectedIds.size === 0) return;
+    const toRemove = elements.filter((el) => connectivity.disconnectedIds.has(el.id));
+    const refund = toRemove.reduce((sum, el) => sum + (ELEMENT_PRICES[el.type] ?? 10), 0);
+    setElements((prev) => prev.filter((el) => !connectivity.disconnectedIds.has(el.id)));
+    triggerRefundNotice(refund, `${toRemove.length} оторванных деталей`);
+    setPlacementWarning(null);
+  };
+
+  // Clean unattached muscles with 1 click and refund food
+  const handleCleanUnattachedMuscles = () => {
+    if (connectivity.unattachedMuscleIds.size === 0) return;
+    const toRemove = elements.filter((el) => connectivity.unattachedMuscleIds.has(el.id));
+    const refund = toRemove.reduce((sum, el) => sum + (ELEMENT_PRICES[el.type] ?? 25), 0);
+    setElements((prev) => prev.filter((el) => !connectivity.unattachedMuscleIds.has(el.id)));
+    triggerRefundNotice(refund, `${toRemove.length} мышц без шарниров`);
+    setPlacementWarning(null);
+  };
 
   // Change random muscle chance (+ / -)
   const handleChangeRandomChance = (id: string, delta: number) => {
@@ -473,7 +493,18 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
   };
 
   const handleSaveAndSpawn = async () => {
-    if (elements.length === 0 || !connectivity.isValid) return;
+    if (elements.length === 0) {
+      setPlacementWarning('⚠️ Добавьте хотя бы одну деталь чудика перед сохранением!');
+      return;
+    }
+    if (!connectivity.isConnected) {
+      setPlacementWarning('⚠️ Нельзя сохранить: детали оторваны от тела чудика! Нажмите кнопку «Удалить оторванные» или соедините их ребрами.');
+      return;
+    }
+    if (connectivity.unattachedMuscleIds.size > 0) {
+      setPlacementWarning('⚠️ Нельзя сохранить: мышцы могут крепиться только к шарнирам (◯)! Нажмите «Удалить и вернуть еду» или установите шарниры.');
+      return;
+    }
     if (!canAfford) {
       setPlacementWarning(`⚠️ Недостаточно очков еды (доступно: ${availableFood}). Удалите часть элементов для возврата очков.`);
       return;
@@ -1363,33 +1394,51 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
 
             {/* Warning banner if muscles are unattached to joints */}
             {connectivity.unattachedMuscleIds.size > 0 && (
-              <div className="w-full bg-rose-950/90 border border-rose-500/80 rounded-xl p-2.5 text-xs text-rose-200 flex items-center gap-2.5 shadow-lg animate-pulse">
-                <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-                <div>
-                  <div className="font-bold text-rose-300">Ошибка: Мышцы без шарниров!</div>
-                  <div className="text-2xs text-rose-200/90 mt-0.5">
-                    {connectivity.unattachedMuscleIds.size === 1
-                      ? '1 мышца установлена не на шарнир (◯).'
-                      : `${connectivity.unattachedMuscleIds.size} мышц(ы) установлены не на шарниры (◯).`}
-                    {' Мышцы должны крепиться строго к шарнирам.'}
+              <div className="w-full bg-rose-950/90 border border-rose-500/80 rounded-xl p-2.5 text-xs text-rose-200 flex items-center justify-between gap-2.5 shadow-lg animate-pulse">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
+                  <div>
+                    <div className="font-bold text-rose-300">Ошибка: Мышцы без шарниров!</div>
+                    <div className="text-2xs text-rose-200/90 mt-0.5">
+                      {connectivity.unattachedMuscleIds.size === 1
+                        ? '1 мышца установлена не на шарнир (◯).'
+                        : `${connectivity.unattachedMuscleIds.size} мышц(ы) установлены не на шарниры (◯).`}
+                      {' Мышцы должны крепиться строго к шарнирам.'}
+                    </div>
                   </div>
                 </div>
+                <button
+                  onClick={handleCleanUnattachedMuscles}
+                  className="px-2.5 py-1 text-2xs font-bold bg-rose-800 hover:bg-rose-700 text-rose-100 rounded-lg transition shrink-0 shadow-sm"
+                  title="Удалить все неприкрепленные мышцы и вернуть еду"
+                >
+                  ♻️ Удалить и вернуть еду
+                </button>
               </div>
             )}
 
             {/* Warning banner if elements are disconnected */}
             {!connectivity.isConnected && (
-              <div className="w-full bg-red-950/90 border border-red-500/80 rounded-xl p-2.5 text-xs text-red-200 flex items-center gap-2.5 shadow-lg animate-pulse">
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
-                <div>
-                  <div className="font-bold text-red-300">Ошибка конструкции: Оторванные элементы!</div>
-                  <div className="text-2xs text-red-200/90 mt-0.5">
-                    {connectivity.disconnectedIds.size === 1
-                      ? '1 деталь находится в воздухе и не связана с телом.'
-                      : `${connectivity.disconnectedIds.size} дет. находятся в воздухе и не связаны с телом.`}
-                    {' Все элементы чудика должны касаться друг друга.'}
+              <div className="w-full bg-red-950/90 border border-red-500/80 rounded-xl p-2.5 text-xs text-red-200 flex items-center justify-between gap-2.5 shadow-lg animate-pulse">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                  <div>
+                    <div className="font-bold text-red-300">Ошибка конструкции: Оторванные элементы!</div>
+                    <div className="text-2xs text-red-200/90 mt-0.5">
+                      {connectivity.disconnectedIds.size === 1
+                        ? '1 деталь оторвана от тела чудика.'
+                        : `${connectivity.disconnectedIds.size} дет. оторваны от тела чудика.`}
+                      {' Все элементы чудика должны быть соединены вместе.'}
+                    </div>
                   </div>
                 </div>
+                <button
+                  onClick={handleCleanDisconnected}
+                  className="px-2.5 py-1 text-2xs font-bold bg-red-800 hover:bg-red-700 text-red-100 rounded-lg transition shrink-0 shadow-sm"
+                  title="Удалить оторванные детали и вернуть за них еду"
+                >
+                  ♻️ Удалить оторванные
+                </button>
               </div>
             )}
 
