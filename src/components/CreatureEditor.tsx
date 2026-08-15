@@ -7,7 +7,10 @@ interface CreatureEditorProps {
   isOpen: boolean;
   editingCreature?: Creature | null;
   token?: string | null;
+  food?: number;
   bankFood?: number;
+  onSpendFood?: (cost: number) => Promise<boolean> | boolean;
+  onDepositFood?: (amount: number) => Promise<boolean> | boolean;
   onSpendBankFood?: (cost: number) => Promise<boolean> | boolean;
   onDepositBankFood?: (amount: number) => Promise<boolean> | boolean;
   onClose: () => void;
@@ -119,7 +122,10 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
   isOpen,
   editingCreature,
   token,
-  bankFood = 0,
+  food,
+  bankFood,
+  onSpendFood,
+  onDepositFood,
   onSpendBankFood,
   onDepositBankFood,
   onClose,
@@ -358,9 +364,9 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
   const connectivity = getCreatureConnectivity(elements);
   const currentElementsCost = calculateElementsPrice(elements);
   const costDiff = currentElementsCost - initialElementsCost;
-  const currentBankFood = bankFood ?? 0;
+  const currentFood = food ?? bankFood ?? (editingCreature?.foodEaten || 0);
   // Available food points for building / replacing parts dynamically
-  const availableFood = currentBankFood - costDiff;
+  const availableFood = currentFood - costDiff;
   const refundedFromDismantling = Math.max(0, initialElementsCost - currentElementsCost);
   const canAfford = availableFood >= 0;
 
@@ -510,14 +516,17 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
       return;
     }
 
-    if (costDiff > 0 && onSpendBankFood) {
-      const ok = await onSpendBankFood(costDiff);
+    const spendFn = onSpendFood || onSpendBankFood;
+    const depositFn = onDepositFood || onDepositBankFood;
+
+    if (costDiff > 0 && spendFn) {
+      const ok = await spendFn(costDiff);
       if (!ok) {
-        setPlacementWarning(`⚠️ Недостаточно еды в Банке для доплаты (${currentBankFood}/${costDiff})!`);
+        setPlacementWarning(`⚠️ Недостаточно очков еды для доплаты (${currentFood}/${costDiff})!`);
         return;
       }
-    } else if (costDiff < 0 && onDepositBankFood) {
-      await onDepositBankFood(-costDiff);
+    } else if (costDiff < 0 && depositFn) {
+      await depositFn(-costDiff);
     }
 
     const saveFn = onSpawnCreature || onSave;
@@ -579,7 +588,7 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
               </div>
 
               <div className="flex items-center justify-between text-2xs text-slate-400 px-1 pt-1 border-t border-slate-700/50">
-                <span>В Банке: <strong className="text-amber-400 font-mono">{currentBankFood}</strong></span>
+                <span>Баланс еды: <strong className="text-emerald-400 font-mono">{currentFood}</strong></span>
                 <span>В чудике: <strong className="text-indigo-300 font-mono">{currentElementsCost}</strong></span>
                 {refundedFromDismantling > 0 && (
                   <span className="text-emerald-400 font-mono font-bold bg-emerald-950/40 px-1.5 py-0.5 rounded border border-emerald-600/30 animate-pulse">

@@ -13,6 +13,7 @@ export interface DBUser {
   passwordHash: string;
   createdAt: string;
   isAdmin?: boolean;
+  food?: number;
   bankFood?: number;
 }
 
@@ -120,7 +121,7 @@ export class UsersDatabase {
     console.log(`[SQLite DB] Active. Users: ${userCount}, Saved Creatures: ${creatureCount}`);
   }
 
-  static async registerUser(username: string, passwordRaw: string): Promise<{ token: string; user: { id: string; username: string; isAdmin: boolean; bankFood: number } }> {
+  static async registerUser(username: string, passwordRaw: string): Promise<{ token: string; user: { id: string; username: string; isAdmin: boolean; food: number; bankFood: number } }> {
     const cleanName = username.trim();
     if (!cleanName || cleanName.length < 3) {
       throw new Error('Имя пользователя должно содержать минимум 3 символа');
@@ -140,17 +141,17 @@ export class UsersDatabase {
     const userId = 'usr_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7);
     const createdAt = new Date().toISOString();
     const isAdmin = cleanName.toLowerCase() === 'joni';
-    const initialBankFood = isAdmin ? 500 : 0;
+    const initialFood = isAdmin ? 500 : 0;
 
     database.prepare(
       'INSERT INTO users (id, username, password_hash, bank_food, created_at) VALUES (?, ?, ?, ?, ?)'
-    ).run(userId, cleanName, passwordHash, initialBankFood, createdAt);
+    ).run(userId, cleanName, passwordHash, initialFood, createdAt);
 
     const token = jwt.sign({ id: userId, username: cleanName, isAdmin }, JWT_SECRET, { expiresIn: '7d' });
-    return { token, user: { id: userId, username: cleanName, isAdmin, bankFood: initialBankFood } };
+    return { token, user: { id: userId, username: cleanName, isAdmin, food: initialFood, bankFood: initialFood } };
   }
 
-  static async loginUser(username: string, passwordRaw: string): Promise<{ token: string; user: { id: string; username: string; isAdmin: boolean; bankFood: number } }> {
+  static async loginUser(username: string, passwordRaw: string): Promise<{ token: string; user: { id: string; username: string; isAdmin: boolean; food: number; bankFood: number } }> {
     const cleanName = username.trim();
     const database = getDb();
 
@@ -165,30 +166,42 @@ export class UsersDatabase {
     }
 
     const isAdmin = row.username.toLowerCase() === 'joni';
-    const bankFood = row.bank_food || 0;
+    const food = row.bank_food || 0;
     const token = jwt.sign({ id: row.id, username: row.username, isAdmin }, JWT_SECRET, { expiresIn: '7d' });
-    return { token, user: { id: row.id, username: row.username, isAdmin, bankFood } };
+    return { token, user: { id: row.id, username: row.username, isAdmin, food, bankFood: food } };
   }
 
-  static getUserBankFood(userId: string): number {
+  static getUserFood(userId: string): number {
     const database = getDb();
     const row = database.prepare('SELECT bank_food FROM users WHERE id = ?').get(userId) as any;
     return row?.bank_food || 0;
   }
 
-  static updateUserBankFood(userId: string, delta: number): number {
+  static getUserBankFood(userId: string): number {
+    return this.getUserFood(userId);
+  }
+
+  static updateUserFood(userId: string, delta: number): number {
     const database = getDb();
-    const current = this.getUserBankFood(userId);
+    const current = this.getUserFood(userId);
     const next = Math.max(0, current + delta);
     database.prepare('UPDATE users SET bank_food = ? WHERE id = ?').run(next, userId);
     return next;
   }
 
-  static setUserBankFood(userId: string, amount: number): number {
+  static updateUserBankFood(userId: string, delta: number): number {
+    return this.updateUserFood(userId, delta);
+  }
+
+  static setUserFood(userId: string, amount: number): number {
     const database = getDb();
     const next = Math.max(0, amount);
     database.prepare('UPDATE users SET bank_food = ? WHERE id = ?').run(next, userId);
     return next;
+  }
+
+  static setUserBankFood(userId: string, amount: number): number {
+    return this.setUserFood(userId, amount);
   }
 
   static verifyToken(token: string): { id: string; username: string; isAdmin: boolean } {

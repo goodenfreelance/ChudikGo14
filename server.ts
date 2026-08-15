@@ -191,47 +191,72 @@ async function startServer() {
   app.get('/api/auth/me', (req, res) => {
     try {
       const user = getAuthUser(req);
-      const bankFood = UsersDatabase.getUserBankFood(user.id);
-      res.json({ status: 'ok', user: { ...user, bankFood } });
+      const food = UsersDatabase.getUserFood(user.id);
+      res.json({ status: 'ok', user: { ...user, food, bankFood: food } });
     } catch (err: any) {
       res.status(401).json({ status: 'error', message: err.message });
     }
   });
 
-  app.post('/api/user/bank/deposit', async (req, res) => {
+  // User Food endpoints (spend & deposit)
+  const handleFoodDeposit = (req: any, res: any) => {
     try {
       const user = getAuthUser(req);
-      const { amount } = req.body;
-      if (typeof amount !== 'number' || amount <= 0) {
+      const amount = Math.max(0, parseInt(req.body.amount, 10) || 0);
+      if (amount <= 0) {
         res.status(400).json({ status: 'error', message: 'Некорректная сумма' });
         return;
       }
-      const newBalance = UsersDatabase.updateUserBankFood(user.id, Math.floor(amount));
-      res.json({ status: 'ok', bankFood: newBalance });
+      const newBalance = UsersDatabase.updateUserFood(user.id, amount);
+      res.json({ status: 'ok', food: newBalance, bankFood: newBalance });
     } catch (err: any) {
       res.status(401).json({ status: 'error', message: err.message });
     }
-  });
+  };
 
-  app.post('/api/user/bank/spend', async (req, res) => {
+  const handleFoodSpend = (req: any, res: any) => {
     try {
       const user = getAuthUser(req);
-      const { amount } = req.body;
-      if (typeof amount !== 'number' || amount <= 0) {
+      const amount = Math.max(0, parseInt(req.body.amount, 10) || 0);
+      if (amount <= 0) {
         res.status(400).json({ status: 'error', message: 'Некорректная сумма' });
         return;
       }
-      const current = UsersDatabase.getUserBankFood(user.id);
+      const current = UsersDatabase.getUserFood(user.id);
       if (current < amount) {
-        res.status(400).json({ status: 'error', message: 'Недостаточно еды в Банке для покупки элементов' });
+        res.status(400).json({ status: 'error', message: `Недостаточно еды для апгрейда (${current}/${amount})` });
         return;
       }
-      const newBalance = UsersDatabase.updateUserBankFood(user.id, -Math.floor(amount));
-      res.json({ status: 'ok', bankFood: newBalance });
+      const newBalance = UsersDatabase.updateUserFood(user.id, -amount);
+      res.json({ status: 'ok', food: newBalance, bankFood: newBalance });
+    } catch (err: any) {
+      res.status(401).json({ status: 'error', message: err.message });
+    }
+  };
+
+  app.get('/api/user/food', (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const food = UsersDatabase.getUserFood(user.id);
+      res.json({ status: 'ok', food, bankFood: food });
     } catch (err: any) {
       res.status(401).json({ status: 'error', message: err.message });
     }
   });
+
+  app.post('/api/user/food/deposit', handleFoodDeposit);
+  app.post('/api/user/food/spend', handleFoodSpend);
+  app.get('/api/user/bank', (req, res) => {
+    try {
+      const user = getAuthUser(req);
+      const food = UsersDatabase.getUserFood(user.id);
+      res.json({ status: 'ok', food, bankFood: food });
+    } catch (err: any) {
+      res.status(401).json({ status: 'error', message: err.message });
+    }
+  });
+  app.post('/api/user/bank/deposit', handleFoodDeposit);
+  app.post('/api/user/bank/spend', handleFoodSpend);
 
   app.get('/api/user/creatures', async (req, res) => {
     try {
@@ -268,44 +293,6 @@ async function startServer() {
       } else {
         res.status(404).json({ status: 'error', message: 'Чудик не найден в вашей коллекции' });
       }
-    } catch (err: any) {
-      res.status(401).json({ status: 'error', message: err.message });
-    }
-  });
-
-  // User Bank Food endpoints
-  app.get('/api/user/bank', async (req, res) => {
-    try {
-      const user = getAuthUser(req);
-      const bankFood = UsersDatabase.getUserBankFood(user.id);
-      res.json({ status: 'ok', bankFood });
-    } catch (err: any) {
-      res.status(401).json({ status: 'error', message: err.message });
-    }
-  });
-
-  app.post('/api/user/bank/spend', async (req, res) => {
-    try {
-      const user = getAuthUser(req);
-      const amount = Math.max(0, parseInt(req.body.amount, 10) || 0);
-      const current = UsersDatabase.getUserBankFood(user.id);
-      if (current < amount) {
-        res.status(400).json({ status: 'error', message: `Недостаточно еды в банке (${current}/${amount})` });
-        return;
-      }
-      const updated = UsersDatabase.updateUserBankFood(user.id, -amount);
-      res.json({ status: 'ok', bankFood: updated });
-    } catch (err: any) {
-      res.status(401).json({ status: 'error', message: err.message });
-    }
-  });
-
-  app.post('/api/user/bank/deposit', async (req, res) => {
-    try {
-      const user = getAuthUser(req);
-      const amount = Math.max(0, parseInt(req.body.amount, 10) || 0);
-      const updated = UsersDatabase.updateUserBankFood(user.id, amount);
-      res.json({ status: 'ok', bankFood: updated });
     } catch (err: any) {
       res.status(401).json({ status: 'error', message: err.message });
     }

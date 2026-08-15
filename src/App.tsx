@@ -62,10 +62,10 @@ export default function App() {
   const [isUserCreaturesOpen, setIsUserCreaturesOpen] = useState<boolean>(false);
   const [controlledCreatureId, setControlledCreatureId] = useState<string | null>(null);
 
-  // Economy Bank Food State
-  const [localBankFood, setLocalBankFood] = useState<number>(() => {
+  // Economy Unified Food State (for sprint & base upgrades)
+  const [localFood, setLocalFood] = useState<number>(() => {
     try {
-      const saved = localStorage.getItem('creatures_bank_food');
+      const saved = localStorage.getItem('creatures_food') || localStorage.getItem('creatures_bank_food');
       if (saved) return parseInt(saved, 10);
     } catch (e) {
       console.error(e);
@@ -75,17 +75,18 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('creatures_bank_food', localBankFood.toString());
+      localStorage.setItem('creatures_food', localFood.toString());
+      localStorage.setItem('creatures_bank_food', localFood.toString());
     } catch (e) {
       console.error(e);
     }
-  }, [localBankFood]);
+  }, [localFood]);
 
-  const handleSpendBankFood = useCallback(async (amount: number): Promise<boolean> => {
+  const handleSpendFood = useCallback(async (amount: number): Promise<boolean> => {
     if (amount <= 0) return true;
     if (authToken) {
       try {
-        const res = await fetch('/api/user/bank/spend', {
+        const res = await fetch('/api/user/food/spend', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -95,31 +96,32 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
-          setLocalBankFood(data.bankFood);
+          const balance = data.food ?? data.bankFood ?? 0;
+          setLocalFood(balance);
           if (authUser) {
-            setAuthUser((prev) => prev ? { ...prev, bankFood: data.bankFood } : null);
+            setAuthUser((prev) => prev ? { ...prev, food: balance, bankFood: balance } : null);
           }
           gameWs.send({ type: 'spend_bank_food', bankFoodAmount: amount });
           return true;
         }
       } catch (e) {
-        console.error('Error spending bank food on server:', e);
+        console.error('Error spending food on server:', e);
       }
     }
 
-    if (localBankFood >= amount) {
-      setLocalBankFood((prev) => Math.max(0, prev - amount));
+    if (localFood >= amount) {
+      setLocalFood((prev) => Math.max(0, prev - amount));
       gameWs.send({ type: 'spend_bank_food', bankFoodAmount: amount });
       return true;
     }
     return false;
-  }, [authToken, authUser, localBankFood]);
+  }, [authToken, authUser, localFood]);
 
-  const handleDepositBankFood = useCallback(async (amount: number): Promise<boolean> => {
+  const handleDepositFood = useCallback(async (amount: number): Promise<boolean> => {
     if (amount <= 0) return true;
     if (authToken) {
       try {
-        const res = await fetch('/api/user/bank/deposit', {
+        const res = await fetch('/api/user/food/deposit', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -129,19 +131,20 @@ export default function App() {
         });
         const data = await res.json();
         if (res.ok && data.status === 'ok') {
-          setLocalBankFood(data.bankFood);
+          const balance = data.food ?? data.bankFood ?? 0;
+          setLocalFood(balance);
           if (authUser) {
-            setAuthUser((prev) => prev ? { ...prev, bankFood: data.bankFood } : null);
+            setAuthUser((prev) => prev ? { ...prev, food: balance, bankFood: balance } : null);
           }
           gameWs.send({ type: 'deposit_bank_food', bankFoodAmount: amount });
           return true;
         }
       } catch (e) {
-        console.error('Error depositing bank food on server:', e);
+        console.error('Error depositing food on server:', e);
       }
     }
 
-    setLocalBankFood((prev) => prev + amount);
+    setLocalFood((prev) => prev + amount);
     gameWs.send({ type: 'deposit_bank_food', bankFoodAmount: amount });
     return true;
   }, [authToken, authUser]);
@@ -156,8 +159,9 @@ export default function App() {
         .then((data) => {
           if (data.status === 'ok' && data.user) {
             setAuthUser(data.user);
-            if (typeof data.user.bankFood === 'number') {
-              setLocalBankFood(data.user.bankFood);
+            const foodVal = data.user.food ?? data.user.bankFood;
+            if (typeof foodVal === 'number') {
+              setLocalFood(foodVal);
             }
           } else {
             localStorage.removeItem('creatures_auth_token');
@@ -399,8 +403,8 @@ export default function App() {
         if (msg.creatures) {
           if (yourCreatureId) {
             const me = msg.creatures.find((c: any) => c.id === yourCreatureId);
-            if (me && typeof me.bankFood === 'number') {
-              setLocalBankFood(me.bankFood);
+            if (me && typeof me.foodEaten === 'number') {
+              setLocalFood(me.foodEaten);
             }
           }
           setCreatures((prev) => {
@@ -1107,7 +1111,8 @@ export default function App() {
                 isCreatureInBase={isSelectedInBase}
                 username={authUser?.username}
                 token={authToken}
-                bankFood={localBankFood}
+                food={localFood}
+                bankFood={localFood}
                 onOpenAuth={() => setIsAuthOpen(true)}
                 onOpenUserCreatures={() => setIsUserCreaturesOpen(true)}
                 onLogout={handleLogout}
@@ -1260,9 +1265,12 @@ export default function App() {
           isOpen={isEditorOpen}
           editingCreature={(creatures || []).find((c) => c.id === editingCreatureId) || null}
           token={authToken}
-          bankFood={localBankFood}
-          onSpendBankFood={handleSpendBankFood}
-          onDepositBankFood={handleDepositBankFood}
+          food={localFood}
+          bankFood={localFood}
+          onSpendFood={handleSpendFood}
+          onDepositFood={handleDepositFood}
+          onSpendBankFood={handleSpendFood}
+          onDepositBankFood={handleDepositFood}
           onClose={() => {
             setIsEditorOpen(false);
             setIsRunning(true);

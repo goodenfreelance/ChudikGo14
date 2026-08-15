@@ -226,9 +226,10 @@ func (r *Room) DepositBankFood(playerID string, amount int) int {
 
 	cID := fmt.Sprintf("player-%s", playerID)
 	if c, exists := r.creatures[cID]; exists && c != nil {
-		c.BankFood += amount
-		c.Score = c.BankFood * 10
-		return c.BankFood
+		c.FoodEaten += amount
+		c.BankFood = c.FoodEaten
+		c.Score += amount * 10
+		return c.FoodEaten
 	}
 	return 0
 }
@@ -242,9 +243,9 @@ func (r *Room) SpendBankFood(playerID string, amount int) bool {
 
 	cID := fmt.Sprintf("player-%s", playerID)
 	if c, exists := r.creatures[cID]; exists && c != nil {
-		if c.BankFood >= amount {
-			c.BankFood -= amount
-			c.Score = c.BankFood * 10
+		if c.FoodEaten >= amount {
+			c.FoodEaten -= amount
+			c.BankFood = c.FoodEaten
 			return true
 		}
 	}
@@ -660,14 +661,10 @@ func (r *Room) Tick() {
 		// Enforce one-way top base wall: permeable from above, impermeable from base side below
 		ResolveOneWayBaseTopWall(c, r.worldRadius)
 
-		// Safe Zone Check & Auto-deposit into BankFood
+		// Safe Zone Check (Base is a peaceful zone for upgrades)
 		inBase := IsInsideBase(c.X, c.Y, r.worldRadius)
 		c.InBase = inBase
-		if inBase && c.FoodEaten > 0 {
-			c.BankFood += c.FoodEaten
-			c.FoodEaten = 0
-			c.Score = c.BankFood * 10
-		}
+		c.BankFood = c.FoodEaten
 
 		// Check and update Sleeping State (Phase 4)
 		CheckAndSetSleepingState(c)

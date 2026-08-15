@@ -36,6 +36,7 @@ interface ControlsProps {
   isCreatureInBase?: boolean;
   username?: string | null;
   token?: string | null;
+  food?: number;
   bankFood?: number;
   onOpenAuth?: () => void;
   onOpenUserCreatures?: () => void;
@@ -66,6 +67,7 @@ export const Controls: React.FC<ControlsProps> = ({
   isCreatureInBase = false,
   username,
   token,
+  food,
   bankFood = 0,
   onOpenAuth,
   onOpenUserCreatures,
@@ -182,10 +184,13 @@ export const Controls: React.FC<ControlsProps> = ({
 
       <div className="h-5 w-px bg-slate-800 hidden md:block" />
 
-      {/* Bank Food Counter */}
-      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-950/40 border border-amber-500/40 rounded-xl text-xs font-bold text-amber-300 shadow-sm" title="Ваш счет в Банке еды (сохраняется в Safe Zone базе)">
-        <Coins className="w-3.5 h-3.5 text-amber-400" />
-        <span>Банк: <strong className="text-amber-200">{bankFood}</strong> 🍎</span>
+      {/* Unified Food Counter (for Sprint & Base Upgrades) */}
+      <div
+        className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-950/50 border border-emerald-500/40 rounded-xl text-xs font-bold text-emerald-300 shadow-sm"
+        title="Единый счетчик еды: расходуется на ускорение (Space) и на апгрейд чудика на Базе"
+      >
+        <span className="text-sm leading-none">🍎</span>
+        <span>Еда: <strong className="text-emerald-200 font-mono text-sm">{food ?? bankFood}</strong></span>
       </div>
 
       <div className="h-5 w-px bg-slate-800 hidden md:block" />
