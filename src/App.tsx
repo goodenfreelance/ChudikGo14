@@ -476,6 +476,51 @@ export default function App() {
 
   // State for holding Spacebar for 1.6x boost / dash
   const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
+  // State for Neutral / Brake mode (N key toggle)
+  const [isBraking, setIsBraking] = useState<boolean>(false);
+
+  const handleToggleBrake = useCallback(() => {
+    setIsBraking((prev) => {
+      const next = !prev;
+      soundFx.playFlex();
+      setToastMessage(
+        next
+          ? '🛑 Тормоз (Нейтраль) включен [N] — чудик замер'
+          : '▶️ Тормоз отключен [N] — движение возобновлено'
+      );
+      setTimeout(() => setToastMessage(null), 2500);
+
+      if (isConnected) {
+        const targetId = controlledCreatureId || yourCreatureId || selectedCreatureId || creatures[0]?.id;
+        if (targetId) {
+          const cr = creatures.find((cur) => cur.id === targetId);
+          if (cr) {
+            if (controlledCreatureId) {
+              gameWs.sendAdminControlInput(
+                controlledCreatureId,
+                cr.targetAngleDeg ?? cr.angleDeg,
+                cr.x,
+                cr.y,
+                false,
+                false,
+                next
+              );
+            } else {
+              gameWs.sendInput(
+                cr.targetAngleDeg ?? cr.angleDeg,
+                cr.x,
+                cr.y,
+                false,
+                false,
+                next
+              );
+            }
+          }
+        }
+      }
+      return next;
+    });
+  }, [isConnected, controlledCreatureId, yourCreatureId, selectedCreatureId, creatures]);
 
   // Base Exit Check: If creature leaves the base while editor is open, close editor immediately without saving
   useEffect(() => {
@@ -567,6 +612,18 @@ export default function App() {
       setCreatures((prevCreatures) => {
         const activeId = controlledCreatureId || yourCreatureId || selectedCreatureId || prevCreatures[0]?.id;
         return prevCreatures.map((c) => {
+          const isThisBraking = ((c.id === activeId && isBraking) || Boolean((c as any).isBraking));
+          if (isThisBraking) {
+            return {
+              ...c,
+              state: 'braking',
+              isBraking: true,
+              prevX: c.x,
+              prevY: c.y,
+              prevAngleDeg: c.angleDeg,
+            } as any;
+          }
+
           let foodEaten = c.foodEaten || 0;
           const isThisDashing = isSpacePressed && c.id === activeId && foodEaten > 0;
           let nextFoodAccum = (c as any).dashFoodAccum || 0;
@@ -645,6 +702,7 @@ export default function App() {
             muscleStep: nextMuscleStep,
             state: effectiveDashing ? 'dashing' : 'moving',
             isDashing: effectiveDashing,
+            isBraking: false,
             foodEaten,
             dashFoodAccum: nextFoodAccum,
             forces,
@@ -657,13 +715,22 @@ export default function App() {
     }, intervalMs);
 
     return () => clearInterval(timer);
-  }, [isConnected, isRunning, speed, worldRadius, isSpacePressed, controlledCreatureId, yourCreatureId, selectedCreatureId]);
+  }, [isConnected, isRunning, speed, worldRadius, isSpacePressed, isBraking, controlledCreatureId, yourCreatureId, selectedCreatureId]);
 
-  // Handle Steering Keyboard Controls (A/D / Arrows Left/Right and Space for Boost)
+  // Handle Steering Keyboard Controls (A/D / Arrows Left/Right, Space for Boost, N for Neutral/Brake)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const activeElement = document.activeElement;
       if (activeElement && (activeElement.tagName === 'INPUT' || activeElement.tagName === 'TEXTAREA')) {
+        return;
+      }
+
+      // Neutral / Brake key (N) toggle
+      if (e.code === 'KeyN' || e.key === 'n' || e.key === 'N' || e.key === 'т' || e.key === 'Т') {
+        e.preventDefault();
+        if (!e.repeat) {
+          handleToggleBrake();
+        }
         return;
       }
 
@@ -721,7 +788,7 @@ export default function App() {
       window.removeEventListener('keyup', handleKeyUp);
       window.removeEventListener('blur', handleBlur);
     };
-  }, [yourCreatureId, creatures, controlledCreatureId, isSpacePressed]);
+  }, [yourCreatureId, creatures, controlledCreatureId, isSpacePressed, isBraking, handleToggleBrake]);
 
   // Turn Player Creature
   const handleTurnPlayer = (dir: 'left' | 'right') => {
@@ -733,7 +800,7 @@ export default function App() {
             const delta = dir === 'left' ? -10 : 10;
             const nextAngle = (c.angleDeg + delta + 360) % 360;
             const canDash = (c.foodEaten || 0) > 0;
-            gameWs.sendAdminControlInput(controlledCreatureId, nextAngle, c.x, c.y, true, isSpacePressed && canDash);
+            gameWs.sendAdminControlInput(controlledCreatureId, nextAngle, c.x, c.y, true, isSpacePressed && canDash, isBraking);
             return {
               ...c,
               targetAngleDeg: nextAngle,
@@ -757,7 +824,7 @@ export default function App() {
           const delta = dir === 'left' ? -10 : 10;
           const nextAngle = (c.angleDeg + delta + 360) % 360;
           const canDash = (c.foodEaten || 0) > 0;
-          gameWs.sendInput(nextAngle, c.x, c.y, true, isSpacePressed && canDash);
+          gameWs.sendInput(nextAngle, c.x, c.y, true, isSpacePressed && canDash, isBraking);
           return {
             ...c,
             targetAngleDeg: nextAngle,
@@ -782,7 +849,7 @@ export default function App() {
             const nx = c.x + Math.cos(rad) * step;
             const ny = c.y + Math.sin(rad) * step;
             const canDash = (c.foodEaten || 0) > 0;
-            gameWs.sendAdminControlInput(controlledCreatureId, c.angleDeg, nx, ny, true, isSpacePressed && canDash);
+            gameWs.sendAdminControlInput(controlledCreatureId, c.angleDeg, nx, ny, true, isSpacePressed && canDash, isBraking);
             return {
               ...c,
               x: nx,
@@ -808,7 +875,7 @@ export default function App() {
           const nx = c.x + Math.cos(rad) * step;
           const ny = c.y + Math.sin(rad) * step;
           const canDash = (c.foodEaten || 0) > 0;
-          gameWs.sendInput(c.angleDeg, nx, ny, true, isSpacePressed && canDash);
+          gameWs.sendInput(c.angleDeg, nx, ny, true, isSpacePressed && canDash, isBraking);
           return {
             ...c,
             x: nx,
@@ -1070,7 +1137,9 @@ export default function App() {
           pendingPlacement={pendingPlacement}
           worldRadius={worldRadius}
           isSpacePressed={isSpacePressed}
+          isBraking={isBraking}
           onSetSpacePressed={setIsSpacePressed}
+          onToggleBrake={handleToggleBrake}
           onNodeClick={handleNodeClick}
           onSelectCreature={handleSelectCreature}
           onPlaceCreature={handlePlaceCreature}
@@ -1113,6 +1182,8 @@ export default function App() {
                 token={authToken}
                 food={localFood}
                 bankFood={localFood}
+                isBraking={isBraking}
+                onToggleBrake={handleToggleBrake}
                 onOpenAuth={() => setIsAuthOpen(true)}
                 onOpenUserCreatures={() => setIsUserCreaturesOpen(true)}
                 onLogout={handleLogout}

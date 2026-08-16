@@ -174,7 +174,7 @@ export class GameWebSocket {
     }
   }
 
-  public sendInput(targetAngleDeg: number, targetX: number, targetY: number, muscleContract: boolean = false, dash: boolean = false) {
+  public sendInput(targetAngleDeg: number, targetX: number, targetY: number, muscleContract: boolean = false, dash: boolean = false, brake?: boolean) {
     this.send({
       type: 'input',
       targetAngleDeg,
@@ -182,6 +182,14 @@ export class GameWebSocket {
       targetY,
       muscleContract,
       dash,
+      brake,
+    });
+  }
+
+  public sendBrake(brake: boolean) {
+    this.send({
+      type: 'input',
+      brake,
     });
   }
 
@@ -231,7 +239,8 @@ export class GameWebSocket {
     targetX: number,
     targetY: number,
     muscleContract: boolean = false,
-    dash: boolean = false
+    dash: boolean = false,
+    brake?: boolean
   ) {
     this.send({
       type: 'admin_control_input',
@@ -241,6 +250,7 @@ export class GameWebSocket {
       targetY,
       muscleContract,
       dash,
+      brake,
     });
   }
 

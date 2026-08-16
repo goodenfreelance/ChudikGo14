@@ -83,8 +83,9 @@ type Creature struct {
 	Score                int               `json:"score"`
 	StepsCount           int               `json:"stepsCount"`
 	MuscleStep           int               `json:"muscleStep"`
-	State                string            `json:"state"` // "idle", "hunting", "eating", "moving", "dashing"
+	State                string            `json:"state"` // "idle", "hunting", "eating", "moving", "dashing", "braking"
 	IsDashing            bool              `json:"isDashing"`
+	IsBraking            bool              `json:"isBraking"`
 	DashFractionAccum    float64           `json:"-"`
 	Elements             []CreatureElement `json:"elements"`
 	Forces               PhysicsForces     `json:"forces"`
@@ -146,6 +147,8 @@ type WSInputMessage struct {
 	TargetY          *float64          `json:"targetY,omitempty"`
 	MuscleContract   bool              `json:"muscleContract,omitempty"`
 	Dash             bool              `json:"dash,omitempty"`
+	Brake            *bool             `json:"brake,omitempty"`
+	ToggleBrake      bool              `json:"toggleBrake,omitempty"`
 	FoodX            *float64          `json:"foodX,omitempty"`
 	FoodY            *float64          `json:"foodY,omitempty"`
 	FoodType         FoodType          `json:"foodType,omitempty"`
@@ -224,6 +227,7 @@ type CreatureNet struct {
 	MuscleStep int               `json:"muscleStep"`
 	State      string            `json:"state"`
 	IsDashing  bool              `json:"isDashing"`
+	IsBraking  bool              `json:"isBraking"`
 	Kills      int               `json:"kills"`
 	Elements   []CreatureElement `json:"elements"`
 	Forces     PhysicsForcesNet  `json:"forces"`
@@ -262,6 +266,7 @@ func ToCreatureNet(c Creature) CreatureNet {
 		MuscleStep: c.MuscleStep,
 		State:      c.State,
 		IsDashing:  (c.IsDashing || c.State == "dashing") && c.FoodEaten > 0,
+		IsBraking:  c.IsBraking,
 		Kills:      c.Kills,
 		Elements:   c.Elements,
 		Forces: PhysicsForcesNet{

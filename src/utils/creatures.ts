@@ -202,6 +202,20 @@ export const DEFAULT_PRESETS: { name: string; description: string; elements: Cre
       { id: 'muscle-rnd-r', relX: 0, relY: 0, type: 'muscle-random-right', weight: 0, randomChance: 35 },
     ],
   },
+  {
+    name: 'Хищник с Челюстью (🦷 Сектор 60°)',
+    description: 'Челюсть установлена на голове (👁️). Кусает других чудиков в секторе 60° по направлению взгляда головы!',
+    elements: [
+      { id: 'head-top', relX: 0, relY: -1, type: 'head', weight: 0, headAngle: 270 },
+      { id: 'jaw-top', relX: 0, relY: -1, type: 'head-jaw', weight: 0, headAngle: 270 },
+      { id: 'joint-center', relX: 0, relY: 0, type: 'joint', weight: 0 },
+      { id: 'edge-l1', relX: -1, relY: 0, type: 'edge-h', weight: 1 },
+      { id: 'edge-r1', relX: 1, relY: 0, type: 'edge-h', weight: 1 },
+      { id: 'edge-v1', relX: 0, relY: -1, type: 'edge-v', weight: 1 },
+      { id: 'muscle-l', relX: 0, relY: 0, type: 'muscle-left', weight: 0 },
+      { id: 'muscle-r', relX: 0, relY: 0, type: 'muscle-right', weight: 0 },
+    ],
+  },
 ];
 
 // Детерминированная проверка срабатывания случайной мышцы для конкретного цикла
@@ -823,25 +837,40 @@ export interface ConnectivityResult {
   connectedIds: Set<string>;
   disconnectedIds: Set<string>;
   unattachedMuscleIds: Set<string>;
+  unattachedJawIds: Set<string>;
 }
 
-// Проверка связности всех элементов чудика и правила: Мышцы крепятся только к шарнирам (◯)
+// Проверка связности всех элементов чудика и правил:
+// 1. Мышцы крепятся только к шарнирам (◯)
+// 2. Челюсти (🦷) крепятся только к голове (👁️)
 export function getCreatureConnectivity(elements: CreatureElement[]): ConnectivityResult {
   // Найти шарнирные координаты
   const jointCoords = new Set<string>();
+  // Найти координаты голов
+  const headCoords = new Set<string>();
+
   elements.forEach((el) => {
     if (el.type === 'joint') {
       jointCoords.add(`${el.relX},${el.relY}`);
+    } else if (el.type === 'head') {
+      headCoords.add(`${el.relX},${el.relY}`);
     }
   });
 
   // Найти мышцы, не прикрепленные к шарниру
   const unattachedMuscleIds = new Set<string>();
+  // Найти челюсти, не прикрепленные к голове
+  const unattachedJawIds = new Set<string>();
+
   elements.forEach((el) => {
+    const coordKey = `${el.relX},${el.relY}`;
     if (el.type.startsWith('muscle-')) {
-      const coordKey = `${el.relX},${el.relY}`;
       if (!jointCoords.has(coordKey)) {
         unattachedMuscleIds.add(el.id);
+      }
+    } else if (el.type === 'head-jaw') {
+      if (!headCoords.has(coordKey)) {
+        unattachedJawIds.add(el.id);
       }
     }
   });
@@ -849,10 +878,11 @@ export function getCreatureConnectivity(elements: CreatureElement[]): Connectivi
   if (elements.length <= 1) {
     return {
       isConnected: true,
-      isValid: unattachedMuscleIds.size === 0,
+      isValid: unattachedMuscleIds.size === 0 && unattachedJawIds.size === 0,
       connectedIds: new Set(elements.map((e) => e.id)),
       disconnectedIds: new Set(),
       unattachedMuscleIds,
+      unattachedJawIds,
     };
   }
 
@@ -898,10 +928,11 @@ export function getCreatureConnectivity(elements: CreatureElement[]): Connectivi
 
   return {
     isConnected,
-    isValid: isConnected && unattachedMuscleIds.size === 0,
+    isValid: isConnected && unattachedMuscleIds.size === 0 && unattachedJawIds.size === 0,
     connectedIds,
     disconnectedIds,
     unattachedMuscleIds,
+    unattachedJawIds,
   };
 }
 
@@ -1241,13 +1272,22 @@ export function selectWinningComponent(components: CreatureElement[][]): Creatur
   return massCandidates[rndIdx].comp;
 }
 
-// Укусы чудиков: укушенный чудик теряет элемент/мышцу, может разрываться на части и пересчитывает физику
+export function normalizeAngleDeg(deg: number): number {
+  let a = deg % 360;
+  if (a > 180) a -= 360;
+  if (a < -180) a += 360;
+  return a;
+}
+
+// Укусы чудиков (Канибализм):
+// 1. Возможен только если у чудика есть челюсть (head-jaw), прикрепленная к голове.
+// 2. Челюсть захватывает сектор 60 градусов (±30°) в направлении взгляда головы.
 export function resolveCreatureBites(creatures: Creature[]): { creatures: Creature[]; hasBitten: boolean } {
   if (creatures.length < 2) {
     return { creatures, hasBitten: false };
   }
 
-  const biteTouchDist = 1.15;
+  const biteTouchDist = 1.25;
   let hasBitten = false;
 
   interface BiteEvent {
@@ -1261,17 +1301,47 @@ export function resolveCreatureBites(creatures: Creature[]): { creatures: Creatu
   for (let i = 0; i < creatures.length; i++) {
     const cA = creatures[i];
     const ptsA = getCreatureElementWorldPositions(cA.x, cA.y, cA.angleDeg, cA.elements);
-    const headWorldPts: Point[] = [];
 
-    cA.elements.forEach((el, idx) => {
+    // Координаты всех голов чудика
+    const headCoords = new Map<string, CreatureElement>();
+    cA.elements.forEach((el) => {
       if (el.type === 'head') {
-        if (idx + 1 < ptsA.length) {
-          headWorldPts.push(ptsA[idx + 1]);
+        headCoords.set(`${el.relX},${el.relY}`, el);
+      }
+    });
+
+    const baseHeadAngle = determineCreatureHeadAngle(cA.elements);
+    const deltaRot = cA.angleDeg - baseHeadAngle;
+
+    interface ActiveJaw {
+      point: Point;
+      worldGazeAngle: number;
+    }
+    const activeJaws: ActiveJaw[] = [];
+
+    // Правило: Канибализм возможен ТОЛЬКО если у чудика есть челюсть (head-jaw), прикрепленная к голове
+    cA.elements.forEach((el, idx) => {
+      if (el.type === 'head-jaw') {
+        const coordKey = `${el.relX},${el.relY}`;
+        const parentHead = headCoords.get(coordKey);
+        // Челюсть должна быть прикреплена к голове
+        if (parentHead || el.headAngle !== undefined) {
+          if (idx + 1 < ptsA.length) {
+            const jawPos = ptsA[idx + 1];
+            const hAngle = el.headAngle !== undefined
+              ? el.headAngle
+              : (parentHead?.headAngle !== undefined ? parentHead.headAngle : baseHeadAngle);
+            const worldGazeAngle = hAngle + deltaRot;
+            activeJaws.push({
+              point: jawPos,
+              worldGazeAngle,
+            });
+          }
         }
       }
     });
 
-    if (headWorldPts.length === 0) continue;
+    if (activeJaws.length === 0) continue;
 
     for (let j = 0; j < creatures.length; j++) {
       if (i === j) continue;
@@ -1285,28 +1355,35 @@ export function resolveCreatureBites(creatures: Creature[]): { creatures: Creatu
       const ptsB = getCreatureElementWorldPositions(cB.x, cB.y, cB.angleDeg, cB.elements);
 
       let bitten = false;
-      for (const hPt of headWorldPts) {
+      for (const jaw of activeJaws) {
         if (bitten) break;
         for (let elIdx = 0; elIdx < cB.elements.length; elIdx++) {
           if (elIdx + 1 >= ptsB.length) continue;
           const bPt = ptsB[elIdx + 1];
 
-          let dx = bPt.x - hPt.x;
+          let dx = bPt.x - jaw.point.x;
           if (dx > 50) dx -= 100;
           else if (dx < -50) dx += 100;
 
-          let dy = bPt.y - hPt.y;
+          let dy = bPt.y - jaw.point.y;
           if (dy > 50) dy -= 100;
           else if (dy < -50) dy += 100;
 
-          if (Math.hypot(dx, dy) <= biteTouchDist) {
-            biteEvents.push({
-              biterId: cA.id,
-              targetId: cB.id,
-              targetElemIdx: elIdx,
-            });
-            bitten = true;
-            break;
+          const dist = Math.hypot(dx, dy);
+          if (dist <= biteTouchDist) {
+            // Правило: Челюсть захватывает сектор 60 градусов (±30°) в направлении взгляда головы
+            const targetAngle = (Math.atan2(dy, dx) * 180) / Math.PI;
+            const angleDiff = Math.abs(normalizeAngleDeg(targetAngle - jaw.worldGazeAngle));
+
+            if (angleDiff <= 30) {
+              biteEvents.push({
+                biterId: cA.id,
+                targetId: cB.id,
+                targetElemIdx: elIdx,
+              });
+              bitten = true;
+              break;
+            }
           }
         }
       }

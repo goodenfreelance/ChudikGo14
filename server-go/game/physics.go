@@ -222,6 +222,16 @@ func DetermineCreatureHeadAngle(elements []CreatureElement) float64 {
 	return 270.0
 }
 
+func NormalizeAngleDeg(angle float64) float64 {
+	for angle > 180.0 {
+		angle -= 360.0
+	}
+	for angle < -180.0 {
+		angle += 360.0
+	}
+	return angle
+}
+
 // Point represents a 2D coordinate vector
 type Point struct {
 	X float64
@@ -1094,19 +1104,50 @@ func ResolveCreatureBites(creatures map[string]*Creature, spawnFoodCb func(x, y 
 			continue
 		}
 
-		headWorldPts := []Point{}
+		type activeJaw struct {
+			point          Point
+			worldGazeAngle float64
+		}
+		var activeJaws []activeJaw
+
 		ptsA := GetCreatureElementWorldPositions(cA.X, cA.Y, cA.AngleDeg, cA.Elements)
 
-		// Only creatures with combat biting jaw heads (ElementHeadJaw) can bite
+		// Find heads coordinates
+		headCoords := make(map[string]CreatureElement)
+		for _, el := range cA.Elements {
+			if el.Type == ElementHead {
+				headCoords[fmt.Sprintf("%d,%d", el.RelX, el.RelY)] = el
+			}
+		}
+
+		baseHeadAngle := DetermineCreatureHeadAngle(cA.Elements)
+		deltaRot := cA.AngleDeg - baseHeadAngle
+
+		// Rule: Cannibalism is only possible if creature has a jaw (ElementHeadJaw) attached to a head
 		for idx, el := range cA.Elements {
 			if el.Type == ElementHeadJaw {
-				if idx+1 < len(ptsA) {
-					headWorldPts = append(headWorldPts, ptsA[idx+1])
+				coordKey := fmt.Sprintf("%d,%d", el.RelX, el.RelY)
+				parentHead, hasHead := headCoords[coordKey]
+				if hasHead || el.HeadAngle != nil {
+					if idx+1 < len(ptsA) {
+						jawPos := ptsA[idx+1]
+						hAngle := baseHeadAngle
+						if el.HeadAngle != nil {
+							hAngle = *el.HeadAngle
+						} else if hasHead && parentHead.HeadAngle != nil {
+							hAngle = *parentHead.HeadAngle
+						}
+						worldGaze := hAngle + deltaRot
+						activeJaws = append(activeJaws, activeJaw{
+							point:          jawPos,
+							worldGazeAngle: worldGaze,
+						})
+					}
 				}
 			}
 		}
 
-		if len(headWorldPts) == 0 {
+		if len(activeJaws) == 0 {
 			continue
 		}
 
@@ -1130,7 +1171,7 @@ func ResolveCreatureBites(creatures map[string]*Creature, spawnFoodCb func(x, y 
 			ptsB := GetCreatureElementWorldPositions(cB.X, cB.Y, cB.AngleDeg, cB.Elements)
 
 			bitten := false
-			for _, hPt := range headWorldPts {
+			for _, jaw := range activeJaws {
 				if bitten {
 					break
 				}
@@ -1140,29 +1181,36 @@ func ResolveCreatureBites(creatures map[string]*Creature, spawnFoodCb func(x, y 
 					}
 					bPt := ptsB[elIdx+1]
 
-					dx := bPt.X - hPt.X
+					dx := bPt.X - jaw.point.X
 					if dx > 50.0 {
 						dx -= 100.0
 					} else if dx < -50.0 {
 						dx += 100.0
 					}
-					dy := bPt.Y - hPt.Y
+					dy := bPt.Y - jaw.point.Y
 					if dy > 50.0 {
 						dy -= 100.0
 					} else if dy < -50.0 {
 						dy += 100.0
 					}
 
-					if math.Hypot(dx, dy) <= biteTouchDist {
-						biteEvents = append(biteEvents, biteEvent{
-							biterID:       cA.ID,
-							targetID:      cB.ID,
-							targetElemIdx: elIdx,
-							contactX:      bPt.X,
-							contactY:      bPt.Y,
-						})
-						bitten = true
-						break
+					dist := math.Hypot(dx, dy)
+					if dist <= biteTouchDist {
+						// Rule: Jaw captures a 60-degree sector (±30°) in the head's gaze direction
+						targetAngle := (math.Atan2(dy, dx) * 180.0) / math.Pi
+						angleDiff := math.Abs(NormalizeAngleDeg(targetAngle - jaw.worldGazeAngle))
+
+						if angleDiff <= 30.0 {
+							biteEvents = append(biteEvents, biteEvent{
+								biterID:       cA.ID,
+								targetID:      cB.ID,
+								targetElemIdx: elIdx,
+								contactX:      bPt.X,
+								contactY:      bPt.Y,
+							})
+							bitten = true
+							break
+						}
 					}
 				}
 			}

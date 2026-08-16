@@ -38,6 +38,8 @@ interface ControlsProps {
   token?: string | null;
   food?: number;
   bankFood?: number;
+  isBraking?: boolean;
+  onToggleBrake?: () => void;
   onOpenAuth?: () => void;
   onOpenUserCreatures?: () => void;
   onLogout?: () => void;
@@ -69,6 +71,8 @@ export const Controls: React.FC<ControlsProps> = ({
   token,
   food,
   bankFood = 0,
+  isBraking = false,
+  onToggleBrake,
   onOpenAuth,
   onOpenUserCreatures,
   onLogout,
@@ -192,6 +196,26 @@ export const Controls: React.FC<ControlsProps> = ({
         <span className="text-sm leading-none">🍎</span>
         <span>Еда: <strong className="text-emerald-200 font-mono text-sm">{food ?? bankFood}</strong></span>
       </div>
+
+      {/* Brake / Neutral Button (N key) */}
+      {onToggleBrake && (
+        <button
+          onClick={onToggleBrake}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl border transition cursor-pointer select-none ${
+            isBraking
+              ? 'bg-rose-600 hover:bg-rose-500 text-white border-rose-400 shadow-lg shadow-rose-950/50 ring-2 ring-rose-300 animate-pulse'
+              : 'bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border-slate-700/60'
+          }`}
+          title={
+            isBraking
+              ? 'Тормоз (Нейтраль) включен [N] — чудик замер на месте. Нажмите N или кнопку для продолжения движения'
+              : 'Включить Тормоз (Нейтраль) [N] — чудик замрет на месте'
+          }
+        >
+          <span>{isBraking ? '🛑' : '⏸️'}</span>
+          <span>{isBraking ? 'Тормоз [N] (Стоп)' : 'Нейтраль [N]'}</span>
+        </button>
+      )}
 
       <div className="h-5 w-px bg-slate-800 hidden md:block" />
 

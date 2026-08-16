@@ -22,11 +22,11 @@ interface CreatureEditorProps {
 const ELEMENT_TOOLS: { type: ElementType | 'eraser'; label: string; symbol: string; weight: number; price: number; desc: string }[] = [
   {
     type: 'head-jaw',
-    label: 'Челюсть / Хищник (🦷 180 еды)',
+    label: 'Челюсть к голове (🦷 180 еды)',
     symbol: '🦷',
     weight: 0,
     price: 180,
-    desc: 'PvP-урон: Кусает врагов и выбивает био-самородки (180 еды)',
+    desc: 'Крепится строго к голове (👁️). Активирует канибализм: кусает врагов в секторе 60° по направлению головы',
   },
   {
     type: 'head',
@@ -220,6 +220,16 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
     setPlacementWarning(null);
   };
 
+  // Clean unattached jaws with 1 click and refund food
+  const handleCleanUnattachedJaws = () => {
+    if (connectivity.unattachedJawIds.size === 0) return;
+    const toRemove = elements.filter((el) => connectivity.unattachedJawIds.has(el.id));
+    const refund = toRemove.reduce((sum, el) => sum + (ELEMENT_PRICES[el.type] ?? 180), 0);
+    setElements((prev) => prev.filter((el) => !connectivity.unattachedJawIds.has(el.id)));
+    triggerRefundNotice(refund, `${toRemove.length} челюстей без головы`);
+    setPlacementWarning(null);
+  };
+
   // Change random muscle chance (+ / -)
   const handleChangeRandomChance = (id: string, delta: number) => {
     setElements((prev) =>
@@ -404,6 +414,19 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
       }
     }
 
+    // Правило: Челюсть (🦷) можно крепить только к голове (👁️)
+    if (selectedTool === 'head-jaw') {
+      const headAtNode = elements.find(
+        (el) => el.type === 'head' && el.relX === relX && el.relY === relY
+      );
+      if (!headAtNode) {
+        setPlacementWarning(
+          `⚠️ Челюсть можно крепить только к голове (👁️)! Сначала установите обычную голову в узел (${relX}, ${relY}).`
+        );
+        return;
+      }
+    }
+
     // Check if an element of the exact same tool type exists at this node
     const existingSame = elements.find(
       (el) => el.relX === relX && el.relY === relY && el.type === selectedTool
@@ -436,13 +459,23 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
     // Add new element at this node location (joints, muscles, heads and edges can co-exist at a node)
     const isRandomMuscle = selectedTool === 'muscle-random-left' || selectedTool === 'muscle-random-right';
     const isHeadOrJaw = selectedTool === 'head' || selectedTool === 'head-jaw';
+    
+    // For jaw, inherit head angle if placed on existing head
+    let effectiveHeadAngle = headAngle;
+    if (selectedTool === 'head-jaw') {
+      const parentHead = elements.find((el) => el.type === 'head' && el.relX === relX && el.relY === relY);
+      if (parentHead && parentHead.headAngle !== undefined) {
+        effectiveHeadAngle = parentHead.headAngle;
+      }
+    }
+
     const newEl: CreatureElement = {
       id: `el-${Date.now()}-${Math.random()}`,
       relX,
       relY,
       type: selectedTool as ElementType,
       weight: toolDef ? toolDef.weight : 1,
-      headAngle: isHeadOrJaw ? headAngle : undefined,
+      headAngle: isHeadOrJaw ? effectiveHeadAngle : undefined,
       randomChance: isRandomMuscle ? randomChance : undefined,
     };
     setElements((prev) => [...prev, newEl]);
@@ -478,6 +511,24 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
             !(el.type.startsWith('muscle-') && el.relX === target.relX && el.relY === target.relY)
         )
       );
+    } else if (target.type === 'head') {
+      // При удалении головы также автоматически удаляем прикрепленные челюсти и возвращаем их стоимость
+      const attachedJaws = elements.filter(
+        (el) => el.type === 'head-jaw' && el.relX === target.relX && el.relY === target.relY
+      );
+      if (attachedJaws.length > 0) {
+        const extraJawCost = attachedJaws.reduce((sum, j) => sum + (ELEMENT_PRICES[j.type] ?? 180), 0);
+        refundAmount += extraJawCost;
+        label = `Голова и ${attachedJaws.length} челюсть(и)`;
+      }
+
+      setElements((prev) =>
+        prev.filter(
+          (el) =>
+            el.id !== id &&
+            !(el.type === 'head-jaw' && el.relX === target.relX && el.relY === target.relY)
+        )
+      );
     } else {
       setElements((prev) => prev.filter((el) => el.id !== id));
     }
@@ -509,6 +560,10 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
     }
     if (connectivity.unattachedMuscleIds.size > 0) {
       setPlacementWarning('⚠️ Нельзя сохранить: мышцы могут крепиться только к шарнирам (◯)! Нажмите «Удалить и вернуть еду» или установите шарниры.');
+      return;
+    }
+    if (connectivity.unattachedJawIds.size > 0) {
+      setPlacementWarning('⚠️ Нельзя сохранить: челюсти (🦷) могут крепиться только к голове (👁️)! Нажмите «Удалить и вернуть еду» или установите головы.');
       return;
     }
     if (!canAfford) {
@@ -772,6 +827,29 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                     {jointCount > 0
                       ? `Мышцы крепятся только к шарнирам (◯). Доступных шарниров: ${jointCount}. Нажмите на подсвеченный шарнир на чертеже.`
                       : 'Мышцы можно устанавливать ТОЛЬКО на шарниры (◯)! Сначала выберите инструмент "Шарнир (◯)" и установите его на сетку.'}
+                  </p>
+                </div>
+              );
+            })()}
+
+            {/* Jaw-to-Head Attachment Rule Helper */}
+            {selectedTool === 'head-jaw' && (() => {
+              const headCount = elements.filter((e) => e.type === 'head').length;
+              return (
+                <div
+                  className={`p-3 rounded-xl border text-xs transition-all ${
+                    headCount > 0
+                      ? 'bg-red-950/40 border-red-600/50 text-red-200'
+                      : 'bg-amber-950/50 border-amber-500/60 text-amber-200 animate-pulse'
+                  }`}
+                >
+                  <div className="font-bold flex items-center gap-1.5 mb-1 text-2xs uppercase tracking-wider">
+                    <span>{headCount > 0 ? '🦷 Правило челюсти и канибализма:' : '⚠️ Внимание: Требуется голова (👁️)!'}</span>
+                  </div>
+                  <p className="text-2xs leading-relaxed opacity-90">
+                    {headCount > 0
+                      ? `Челюсть крепится строго к голове (👁️). Доступных голов: ${headCount}. Нажмите на голову на чертеже. Челюсть кусает врагов в секторе 60° по направлению взгляда головы!`
+                      : 'Челюсть можно устанавливать ТОЛЬКО на голову (👁️)! Сначала выберите инструмент "Голова обычная (👁️)" и установите её на сетку.'}
                   </p>
                 </div>
               );
@@ -1209,15 +1287,6 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                               strokeWidth="4"
                               strokeLinecap="round"
                             />
-                            <text
-                              x={px - 28}
-                              y={py + 14}
-                              fill="#f43f5e"
-                              fontSize="10"
-                              fontWeight="bold"
-                            >
-                              ⟲
-                            </text>
                           </g>
                         );
                       }
@@ -1240,15 +1309,6 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                               strokeWidth="4"
                               strokeLinecap="round"
                             />
-                            <text
-                              x={px + 20}
-                              y={py + 14}
-                              fill="#a855f7"
-                              fontSize="10"
-                              fontWeight="bold"
-                            >
-                              ⟳
-                            </text>
                           </g>
                         );
                       }
@@ -1333,7 +1393,11 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                         const hasJointHere = elements.some(
                           (e) => e.type === 'joint' && e.relX === relX && e.relY === relY
                         );
+                        const hasHeadHere = elements.some(
+                          (e) => e.type === 'head' && e.relX === relX && e.relY === relY
+                        );
                         const isMuscleTool = selectedTool.startsWith('muscle-');
+                        const isJawTool = selectedTool === 'head-jaw';
 
                         return (
                           <g
@@ -1357,12 +1421,25 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                               />
                             )}
 
+                            {/* Special visual ring for heads when jaw tool is active */}
+                            {isJawTool && hasHeadHere && (
+                              <circle
+                                cx={px}
+                                cy={py}
+                                r="18"
+                                fill="rgba(239, 68, 68, 0.2)"
+                                stroke="#ef4444"
+                                strokeWidth="1.5"
+                                strokeDasharray="3 2"
+                              />
+                            )}
+
                             {/* Dot at Grid Node */}
                             <circle
                               cx={px}
                               cy={py}
                               r={hasElementsHere ? '3.5' : '2'}
-                              fill={hasJointHere ? '#38bdf8' : hasElementsHere ? '#818cf8' : 'rgba(255, 255, 255, 0.35)'}
+                              fill={hasJointHere ? '#38bdf8' : hasHeadHere ? '#f59e0b' : hasElementsHere ? '#818cf8' : 'rgba(255, 255, 255, 0.35)'}
                               className="transition-transform group-hover:scale-150"
                             />
 
@@ -1370,10 +1447,10 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                             <circle
                               cx={px}
                               cy={py}
-                              r="16"
+                              r={16}
                               fill="transparent"
                               className={
-                                isMuscleTool && !hasJointHere
+                                (isMuscleTool && !hasJointHere) || (isJawTool && !hasHeadHere)
                                   ? 'group-hover:fill-red-500/20'
                                   : 'group-hover:fill-indigo-500/20'
                               }
@@ -1387,7 +1464,13 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
               })()}
             </div>
 
-            {/* Notification / Toast Banner if user tries to attach muscle outside a joint */}
+
+
+
+
+
+
+            {/* Notification / Toast Banner if user tries to attach muscle or jaw incorrectly */}
             {placementWarning && (
               <div className="w-full bg-amber-950/90 border border-amber-500/80 rounded-xl p-2.5 text-xs text-amber-200 flex items-center gap-2.5 shadow-lg">
                 <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
@@ -1397,6 +1480,31 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
                   className="text-amber-400 hover:text-amber-200 p-1"
                 >
                   <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Warning banner if jaws are unattached to heads */}
+            {connectivity.unattachedJawIds.size > 0 && (
+              <div className="w-full bg-red-950/90 border border-red-500/80 rounded-xl p-2.5 text-xs text-red-200 flex items-center justify-between gap-2.5 shadow-lg animate-pulse">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+                  <div>
+                    <div className="font-bold text-red-300">Ошибка: Челюсть без головы!</div>
+                    <div className="text-2xs text-red-200/90 mt-0.5">
+                      {connectivity.unattachedJawIds.size === 1
+                        ? '1 челюсть (🦷) установлена не на голову (👁️).'
+                        : `${connectivity.unattachedJawIds.size} челюстей (🦷) установлены не на головы (👁️).`}
+                      {' Челюсти можно устанавливать только на узел с головой.'}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  onClick={handleCleanUnattachedJaws}
+                  className="px-2.5 py-1 text-2xs font-bold bg-red-800 hover:bg-red-700 text-red-100 rounded-lg transition shrink-0 shadow-sm"
+                  title="Удалить все неприкрепленные челюсти и вернуть еду"
+                >
+                  ♻️ Удалить и вернуть еду
                 </button>
               </div>
             )}

@@ -115,7 +115,7 @@ export interface Creature {
   stepsCount: number;
   angleDeg: number;
   forces: PhysicsForces;
-  state: 'idle' | 'hunting' | 'eating' | 'moving' | 'dashing';
+  state: 'idle' | 'hunting' | 'eating' | 'moving' | 'dashing' | 'braking';
   muscleStep: number;
   moveProgress?: number;
   prevX: number;
@@ -125,6 +125,7 @@ export interface Creature {
   velY?: number;
   angularVel?: number;
   isSleeping?: boolean;
+  isBraking?: boolean;
 }
 
 export interface Food {

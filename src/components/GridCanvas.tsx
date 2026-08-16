@@ -14,7 +14,9 @@ interface GridCanvasProps {
   pendingPlacement: PendingPlacement | null;
   worldRadius?: number;
   isSpacePressed?: boolean;
+  isBraking?: boolean;
   onSetSpacePressed?: (pressed: boolean) => void;
+  onToggleBrake?: () => void;
   onNodeClick: (x: number, y: number, isRightClick: boolean) => void;
   onSelectCreature: (id: string | null) => void;
   onPlaceCreature: (x: number, y: number, angleDeg: number) => void;
@@ -35,7 +37,9 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
   pendingPlacement,
   worldRadius = 50,
   isSpacePressed = false,
+  isBraking = false,
   onSetSpacePressed,
+  onToggleBrake,
   onNodeClick,
   onSelectCreature,
   onPlaceCreature,
@@ -73,6 +77,8 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
   const smoothedHudYRef = useRef<Map<string, number>>(new Map());
   const isSpacePressedRef = useRef<boolean>(isSpacePressed);
   isSpacePressedRef.current = isSpacePressed;
+  const isBrakingRef = useRef<boolean>(isBraking);
+  isBrakingRef.current = isBraking;
 
   const creaturesRef = useRef(creatures);
   const foodsRef = useRef(foods);
@@ -1395,13 +1401,19 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
           const f = creature.forces;
           const boostMultiplier = isDashing ? 1.6 : 1.0;
           const currentDisplaySpeed = (f.forwardSpeed * boostMultiplier).toFixed(2);
+          const isCreatureBraking = creature.isBraking || creature.state === 'braking' || (isSelected && isBrakingRef.current);
 
           if (isGameTheme) {
             // Game Mode HUD Badge: Displays Creature Name, Mass, Speed and Food Count
-            const sleepTag = creature.isSleeping ? ' 💤' : '';
+            const brakeTag = isCreatureBraking ? ' 🛑[СТОП]' : '';
+            const sleepTag = creature.isSleeping && !isCreatureBraking ? ' 💤' : '';
             const baseTag = creature.inBase ? ' 🛡️[БАЗА]' : '';
-            const titleText = `🐍 ${creature.name}${sleepTag}${baseTag}`;
-            const speedStr = isDashing ? `⚡ ${currentDisplaySpeed} (1.6x)` : `Скор: ${currentDisplaySpeed}`;
+            const titleText = `🐍 ${creature.name}${brakeTag}${sleepTag}${baseTag}`;
+            const speedStr = isCreatureBraking
+              ? '🛑 НЕЙТРАЛЬ (N)'
+              : isDashing
+              ? `⚡ ${currentDisplaySpeed} (1.6x)`
+              : `Скор: ${currentDisplaySpeed}`;
             const bankStr = creature.inBase ? ` (Банк: ${creature.bankFood || 0})` : '';
             const statsText = `Масса: ${f.totalMass.toFixed(1)}  •  ${speedStr}  •  Еда: ${creature.foodEaten || 0}${bankStr}`;
 
@@ -1415,8 +1427,8 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
             const badgeY = energyBarY - 6 * currentZoom - badgeH;
 
             ctx.fillStyle = currentGridTheme === 'game-light' ? 'rgba(255, 255, 255, 0.94)' : 'rgba(15, 23, 42, 0.92)';
-            ctx.strokeStyle = creature.inBase ? '#10b981' : (isDashing ? '#f59e0b' : (creature.isSleeping ? '#94a3b8' : (creature.color || '#ec4899')));
-            ctx.lineWidth = (creature.inBase || isDashing ? 2.5 : 1.5) * currentZoom;
+            ctx.strokeStyle = isCreatureBraking ? '#f43f5e' : (creature.inBase ? '#10b981' : (isDashing ? '#f59e0b' : (creature.isSleeping ? '#94a3b8' : (creature.color || '#ec4899'))));
+            ctx.lineWidth = (isCreatureBraking || creature.inBase || isDashing ? 2.5 : 1.5) * currentZoom;
 
             ctx.beginPath();
             if (typeof ctx.roundRect === 'function') {
@@ -1428,7 +1440,7 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
             ctx.stroke();
 
             // Creature Name
-            ctx.fillStyle = creature.inBase ? '#34d399' : (currentGridTheme === 'game-light' ? '#0f172a' : '#ffffff');
+            ctx.fillStyle = isCreatureBraking ? '#fb7185' : (creature.inBase ? '#34d399' : (currentGridTheme === 'game-light' ? '#0f172a' : '#ffffff'));
             ctx.font = `bold ${Math.max(11, 12.5 * currentZoom)}px system-ui, sans-serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
@@ -1436,7 +1448,7 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
 
             // Mass, Speed, Food Count
             ctx.font = `bold ${Math.max(9, 10 * currentZoom)}px monospace`;
-            ctx.fillStyle = isDashing ? '#f59e0b' : (currentGridTheme === 'game-light' ? '#334155' : '#38bdf8');
+            ctx.fillStyle = isCreatureBraking ? '#fb7185' : (isDashing ? '#f59e0b' : (currentGridTheme === 'game-light' ? '#334155' : '#38bdf8'));
             ctx.fillText(statsText, 0, badgeY + 19 * currentZoom);
           } else {
             // Notebook / Blueprint / Dark / Paper HUD
@@ -1444,10 +1456,11 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
             const nameY = statsY - 14 * currentZoom;
 
             // Speed indicator dynamically highlights with 1.6x multiplier when boost is active!
-            const speedLabel = isDashing ? `v:${currentDisplaySpeed} ⚡x1.6` : `v:${currentDisplaySpeed}`;
+            const speedLabel = isCreatureBraking ? '🛑СТОП [N]' : (isDashing ? `v:${currentDisplaySpeed} ⚡x1.6` : `v:${currentDisplaySpeed}`);
             const baseTag = creature.inBase ? ' 🛡️[БАЗА]' : '';
+            const brakeTag = isCreatureBraking ? ' 🛑[СТОП]' : '';
             ctx.font = `bold ${Math.max(9, 10.5 * currentZoom)}px monospace`;
-            ctx.fillStyle = isDashing ? '#f59e0b' : (creature.inBase ? '#10b981' : '#38bdf8');
+            ctx.fillStyle = isCreatureBraking ? '#f43f5e' : (isDashing ? '#f59e0b' : (creature.inBase ? '#10b981' : '#38bdf8'));
             ctx.textAlign = 'center';
             ctx.textBaseline = 'bottom';
             ctx.fillText(
@@ -1456,10 +1469,10 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
               statsY
             );
 
-            ctx.fillStyle = creature.inBase ? '#10b981' : mainInkColor;
+            ctx.fillStyle = isCreatureBraking ? '#f43f5e' : (creature.inBase ? '#10b981' : mainInkColor);
             ctx.font = `bold ${Math.max(11, 13 * currentZoom)}px system-ui, sans-serif`;
-            const sleepTag = creature.isSleeping ? ' 💤' : '';
-            ctx.fillText(`${creature.name}${sleepTag}${baseTag}`, 0, nameY);
+            const sleepTag = creature.isSleeping && !isCreatureBraking ? ' 💤' : '';
+            ctx.fillText(`${creature.name}${brakeTag}${sleepTag}${baseTag}`, 0, nameY);
           }
 
           // Energy Bar
@@ -1723,17 +1736,17 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
                 </div>
               </div>
 
-              {/* Live Telemetry Row: Mass, Speed (with dynamic 1.6x multiplier), Food */}
+              {/* Live Telemetry Row: Mass, Speed (with dynamic 1.6x multiplier or Brake indicator), Food */}
               <div className="flex items-center justify-between gap-1 px-2 py-1 bg-slate-800/80 rounded-xl border border-slate-700/60 font-mono text-[11px]">
                 <div className="flex items-center gap-1 text-slate-300" title="Масса чудика">
                   <span className="text-indigo-400 font-semibold">M:</span>
                   <span>{activeMass}</span>
                 </div>
                 <div className="w-px h-3 bg-slate-700" />
-                <div className={`flex items-center gap-1 transition-colors ${isActuallyDashing ? 'text-amber-300 font-bold' : 'text-emerald-400'}`} title="Текущая скорость движения">
-                  <span>{isActuallyDashing ? '⚡' : 'V:'}</span>
-                  <span>{liveSpeed}</span>
-                  {isActuallyDashing && <span className="text-[9px] text-amber-400 font-bold">x1.6</span>}
+                <div className={`flex items-center gap-1 transition-colors ${isBraking ? 'text-rose-400 font-bold' : isActuallyDashing ? 'text-amber-300 font-bold' : 'text-emerald-400'}`} title={isBraking ? 'Тормоз (Нейтраль) включен' : 'Текущая скорость движения'}>
+                  <span>{isBraking ? '🛑' : isActuallyDashing ? '⚡' : 'V:'}</span>
+                  <span>{isBraking ? 'СТОП' : liveSpeed}</span>
+                  {isActuallyDashing && !isBraking && <span className="text-[9px] text-amber-400 font-bold">x1.6</span>}
                 </div>
                 <div className="w-px h-3 bg-slate-700" />
                 <div className={`flex items-center gap-1 ${hasFood ? 'text-amber-300' : 'text-red-400'}`} title="Количество съеденной еды">
@@ -1744,7 +1757,7 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
 
               <div className="flex items-center gap-1.5 pt-0.5">
                 <button
-                  onClick={() => onTurnPlayer('left')}
+                  onClick={() => onTurnPlayer?.('left')}
                   className="flex-1 py-1.5 px-2 bg-indigo-600/30 hover:bg-indigo-600/60 text-indigo-200 border border-indigo-500/50 rounded-xl font-bold flex items-center justify-center gap-1 transition text-xs active:scale-95 shadow-md cursor-pointer"
                   title="Повернуть влево на 10° (Стрелка влево ← или A)"
                 >
@@ -1753,7 +1766,7 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
                 </button>
 
                 <button
-                  onClick={() => onTurnPlayer('right')}
+                  onClick={() => onTurnPlayer?.('right')}
                   className="flex-1 py-1.5 px-2 bg-indigo-600/30 hover:bg-indigo-600/60 text-indigo-200 border border-indigo-500/50 rounded-xl font-bold flex items-center justify-center gap-1 transition text-xs active:scale-95 shadow-md cursor-pointer"
                   title="Повернуть вправо на 10° (Стрелка вправо → или D)"
                 >
@@ -1762,34 +1775,54 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
                 </button>
               </div>
 
+              {/* Neutral / Brake Action Button (N key) */}
+              <div className="pt-0.5">
+                <button
+                  onClick={() => onToggleBrake?.()}
+                  className={`w-full py-1.5 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 transition text-xs select-none cursor-pointer ${
+                    isBraking
+                      ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-lg shadow-rose-950/60 ring-2 ring-rose-300 animate-pulse'
+                      : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                  }`}
+                  title="Тормоз (Нейтраль) [N] — чудик замирает на месте до следующего нажатия кнопки N"
+                >
+                  <span>{isBraking ? '🛑' : '⏸️'}</span>
+                  <span>{isBraking ? 'ТОРМОЗ ВКЛЮЧЕН [N]' : 'НЕЙТРАЛЬ / ТОРМОЗ [N]'}</span>
+                </button>
+              </div>
+
               {/* Dash / Boost Action Button */}
               <div className="pt-0.5">
                 <button
-                  disabled={!hasFood}
+                  disabled={!hasFood || isBraking}
                   onMouseDown={() => {
-                    if (hasFood) onSetSpacePressed?.(true);
+                    if (hasFood && !isBraking) onSetSpacePressed?.(true);
                   }}
                   onMouseUp={() => onSetSpacePressed?.(false)}
                   onTouchStart={() => {
-                    if (hasFood) onSetSpacePressed?.(true);
+                    if (hasFood && !isBraking) onSetSpacePressed?.(true);
                   }}
                   onTouchEnd={() => onSetSpacePressed?.(false)}
                   className={`w-full py-2 px-2.5 rounded-xl font-bold flex items-center justify-center gap-1.5 transition text-xs select-none ${
-                    !hasFood
+                    !hasFood || isBraking
                       ? 'bg-slate-800/60 text-slate-500 border border-slate-700/40 cursor-not-allowed opacity-70'
                       : isActuallyDashing
                       ? 'bg-amber-500 text-slate-950 shadow-lg shadow-amber-500/50 scale-[1.02] ring-2 ring-amber-300 cursor-pointer'
                       : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 cursor-pointer'
                   }`}
                   title={
-                    !hasFood
+                    isBraking
+                      ? 'Ускорение недоступно: чудик на тормозе (N)'
+                      : !hasFood
                       ? 'Ускорение недоступно: запас еды равен 0. Соберите еду на поле!'
                       : 'Рывок и ускорение в 1.6 раз. Зажмите ПРОБЕЛ. Расход: 2 ед. еды в секунду'
                   }
                 >
-                  <Zap className={`w-3.5 h-3.5 ${!hasFood ? 'text-slate-500' : isActuallyDashing ? 'animate-pulse text-slate-950' : 'text-amber-400'}`} />
+                  <Zap className={`w-3.5 h-3.5 ${!hasFood || isBraking ? 'text-slate-500' : isActuallyDashing ? 'animate-pulse text-slate-950' : 'text-amber-400'}`} />
                   <span>
-                    {!hasFood
+                    {isBraking
+                      ? '🛑 НА ТОРМОЗЕ'
+                      : !hasFood
                       ? '❌ НЕТ ЕДЫ ДЛЯ РЫВКА (0)'
                       : isActuallyDashing
                       ? '⚡ РЫВОК АКТИВЕН (1.6x)'
@@ -1799,7 +1832,11 @@ const GridCanvasComponent: React.FC<GridCanvasProps> = ({
               </div>
 
               <div className="text-[10px] text-amber-300/80 text-center font-mono pt-0.5">
-                {!hasFood ? '⚠️ Требуется еда > 0 для ускорения' : 'Ускорение: Пробел (2 еды/сек) • A / D: Поворот'}
+                {isBraking
+                  ? '🛑 Чудик на тормозе. Нажмите N для возобновления'
+                  : !hasFood
+                  ? 'N: Тормоз • A/D: Поворот • Требуется еда > 0 для ускорения'
+                  : 'N: Тормоз (Нейтраль) • Space: Рывок (1.6x) • A/D: Поворот'}
               </div>
             </div>
           );

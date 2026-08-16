@@ -316,7 +316,13 @@ func (r *Room) HandleInput(playerID string, msg WSInputMessage) {
 		c.MuscleStep++
 	}
 
-	c.IsDashing = msg.Dash && c.FoodEaten > 0
+	if msg.Brake != nil {
+		c.IsBraking = *msg.Brake
+	} else if msg.ToggleBrake {
+		c.IsBraking = !c.IsBraking
+	}
+
+	c.IsDashing = msg.Dash && c.FoodEaten > 0 && !c.IsBraking
 	if !c.IsDashing && c.State == "dashing" {
 		c.State = "moving"
 	}
@@ -347,7 +353,13 @@ func (r *Room) HandleAdminControlInput(targetCreatureID string, msg WSInputMessa
 		c.MuscleStep++
 	}
 
-	c.IsDashing = msg.Dash && c.FoodEaten > 0
+	if msg.Brake != nil {
+		c.IsBraking = *msg.Brake
+	} else if msg.ToggleBrake {
+		c.IsBraking = !c.IsBraking
+	}
+
+	c.IsDashing = msg.Dash && c.FoodEaten > 0 && !c.IsBraking
 	if !c.IsDashing && c.State == "dashing" {
 		c.State = "moving"
 	}
@@ -543,100 +555,110 @@ func (r *Room) Tick() {
 		// Apply Hydrodynamic Drag (Phase 2)
 		ApplyHydrodynamicDrag(c, dt)
 
-		// Process dash acceleration and food consumption (1 sec dash = dashFoodCostPerSecond food units)
-		if c.IsDashing && c.FoodEaten > 0 {
-			c.State = "dashing"
-			costPerSec := cfg.Physics.DashFoodCostPerSecond
-			if costPerSec <= 0 {
-				costPerSec = 2.0
-			}
-			c.DashFractionAccum += costPerSec * dt
-			if c.DashFractionAccum >= 1.0 {
-				consumed := int(c.DashFractionAccum)
-				if consumed > c.FoodEaten {
-					consumed = c.FoodEaten
+		if c.IsBraking {
+			c.VelX = 0
+			c.VelY = 0
+			c.AngularVel = 0
+			c.IsDashing = false
+			c.State = "braking"
+			c.IsSleeping = true
+			c.DashFractionAccum = 0
+		} else {
+			// Process dash acceleration and food consumption (1 sec dash = dashFoodCostPerSecond food units)
+			if c.IsDashing && c.FoodEaten > 0 {
+				c.State = "dashing"
+				costPerSec := cfg.Physics.DashFoodCostPerSecond
+				if costPerSec <= 0 {
+					costPerSec = 2.0
 				}
-				c.FoodEaten -= consumed
-				c.Score -= consumed
-				if c.Score < 0 {
-					c.Score = 0
+				c.DashFractionAccum += costPerSec * dt
+				if c.DashFractionAccum >= 1.0 {
+					consumed := int(c.DashFractionAccum)
+					if consumed > c.FoodEaten {
+						consumed = c.FoodEaten
+					}
+					c.FoodEaten -= consumed
+					c.Score -= consumed
+					if c.Score < 0 {
+						c.Score = 0
+					}
+					c.DashFractionAccum -= float64(consumed)
 				}
-				c.DashFractionAccum -= float64(consumed)
-			}
-			if c.FoodEaten <= 0 {
-				c.FoodEaten = 0
-				c.State = "moving"
+				if c.FoodEaten <= 0 {
+					c.FoodEaten = 0
+					c.State = "moving"
+					c.IsDashing = false
+					c.DashFractionAccum = 0
+				}
+			} else {
 				c.IsDashing = false
+				if c.State == "dashing" || c.State == "braking" {
+					c.State = "moving"
+				}
 				c.DashFractionAccum = 0
 			}
-		} else {
-			c.IsDashing = false
-			if c.State == "dashing" {
-				c.State = "moving"
+
+			// Muscle torque applied to rotation target steering
+			if math.Abs(c.Forces.NetRotationDeg) > 0.001 {
+				rotSpeedDegPerSec := c.Forces.NetRotationDeg * 2.2
+				c.TargetAngleDeg += rotSpeedDegPerSec * dt
+				for c.TargetAngleDeg >= 360.0 {
+					c.TargetAngleDeg -= 360.0
+				}
+				for c.TargetAngleDeg < 0.0 {
+					c.TargetAngleDeg += 360.0
+				}
 			}
-			c.DashFractionAccum = 0
-		}
 
-		// Muscle torque applied to rotation target steering
-		if math.Abs(c.Forces.NetRotationDeg) > 0.001 {
-			rotSpeedDegPerSec := c.Forces.NetRotationDeg * 2.2
-			c.TargetAngleDeg += rotSpeedDegPerSec * dt
-			for c.TargetAngleDeg >= 360.0 {
-				c.TargetAngleDeg -= 360.0
+			// Smooth angle rotation toward target angle
+			angleDiff := c.TargetAngleDeg - c.AngleDeg
+			for angleDiff > 180 {
+				angleDiff -= 360
 			}
-			for c.TargetAngleDeg < 0.0 {
-				c.TargetAngleDeg += 360.0
+			for angleDiff < -180 {
+				angleDiff += 360
 			}
-		}
 
-		// Smooth angle rotation toward target angle
-		angleDiff := c.TargetAngleDeg - c.AngleDeg
-		for angleDiff > 180 {
-			angleDiff -= 360
-		}
-		for angleDiff < -180 {
-			angleDiff += 360
-		}
+			// Smooth turn rate with rotational inertia (deg/sec)
+			turnSpeed := math.Max(45.0, math.Min(180.0, 75.0+math.Abs(c.Forces.NetRotationDeg)*2.0))
+			if c.State == "dashing" && c.IsDashing && c.FoodEaten > 0 {
+				turnSpeed *= 1.3
+			}
 
-		// Smooth turn rate with rotational inertia (deg/sec)
-		turnSpeed := math.Max(45.0, math.Min(180.0, 75.0+math.Abs(c.Forces.NetRotationDeg)*2.0))
-		if c.State == "dashing" && c.IsDashing && c.FoodEaten > 0 {
-			turnSpeed *= 1.3
-		}
-
-		maxTurnThisFrame := turnSpeed * dt
-		if math.Abs(angleDiff) > maxTurnThisFrame {
-			if angleDiff > 0 {
-				c.AngleDeg += maxTurnThisFrame
+			maxTurnThisFrame := turnSpeed * dt
+			if math.Abs(angleDiff) > maxTurnThisFrame {
+				if angleDiff > 0 {
+					c.AngleDeg += maxTurnThisFrame
+				} else {
+					c.AngleDeg -= maxTurnThisFrame
+				}
 			} else {
-				c.AngleDeg -= maxTurnThisFrame
+				c.AngleDeg = c.TargetAngleDeg
 			}
-		} else {
-			c.AngleDeg = c.TargetAngleDeg
-		}
-		c.AngleDeg = math.Mod(c.AngleDeg+360.0, 360.0)
+			c.AngleDeg = math.Mod(c.AngleDeg+360.0, 360.0)
 
-		// Forward velocity propulsion in grid cells per second
-		dx, dy := GetVectorFromAngle(c.AngleDeg)
+			// Forward velocity propulsion in grid cells per second
+			dx, dy := GetVectorFromAngle(c.AngleDeg)
 
-		// Target cruising speed (approx 1.5 - 3.5 grid cells / second)
-		targetSpeed := c.Forces.ForwardSpeed * 8.5
-		if c.State == "dashing" && c.IsDashing && c.FoodEaten > 0 {
-			dashMult := cfg.Physics.DashMultiplier
-			if dashMult <= 0 {
-				dashMult = 1.6
+			// Target cruising speed (approx 1.5 - 3.5 grid cells / second)
+			targetSpeed := c.Forces.ForwardSpeed * 8.5
+			if c.State == "dashing" && c.IsDashing && c.FoodEaten > 0 {
+				dashMult := cfg.Physics.DashMultiplier
+				if dashMult <= 0 {
+					dashMult = 1.6
+				}
+				targetSpeed *= dashMult
 			}
-			targetSpeed *= dashMult
+
+			// Responsive acceleration toward propulsion heading
+			accelRate := 10.0
+			c.VelX += (dx*targetSpeed - c.VelX) * (1.0 - math.Exp(-accelRate*dt))
+			c.VelY += (dy*targetSpeed - c.VelY) * (1.0 - math.Exp(-accelRate*dt))
+
+			// Physical displacement per frame (grid cells)
+			c.X += c.VelX * dt
+			c.Y += c.VelY * dt
 		}
-
-		// Responsive acceleration toward propulsion heading
-		accelRate := 10.0
-		c.VelX += (dx*targetSpeed - c.VelX) * (1.0 - math.Exp(-accelRate*dt))
-		c.VelY += (dy*targetSpeed - c.VelY) * (1.0 - math.Exp(-accelRate*dt))
-
-		// Physical displacement per frame (grid cells)
-		c.X += c.VelX * dt
-		c.Y += c.VelY * dt
 
 		// World boundary toroidal wrap check
 		halfWorld := r.worldRadius
