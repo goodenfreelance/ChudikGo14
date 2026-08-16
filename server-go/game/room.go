@@ -705,13 +705,17 @@ func (r *Room) Tick() {
 			eaten := FindEatenFood(c.PrevX, c.PrevY, c.PrevAngleDeg, c.X, c.Y, c.AngleDeg, c.Elements, nearbyFoods)
 			if eaten != nil {
 				delete(r.foods, eaten.ID)
-				foodGain := 1
-				if eaten.Type == FoodSuper {
-					foodGain = 2
-				} else if eaten.Type == FoodGolden {
-					foodGain = 3
+				foodGain := eaten.Value
+				if foodGain <= 0 {
+					foodGain = 10
+					if eaten.Type == FoodSuper {
+						foodGain = 15
+					} else if eaten.Type == FoodGolden {
+						foodGain = 25
+					}
 				}
 				c.FoodEaten += foodGain
+				c.BankFood = c.FoodEaten
 				c.Score += eaten.Value
 				c.Energy = math.Min(c.MaxEnergy, c.Energy+float64(eaten.Value)*1.2)
 				c.IsSleeping = false

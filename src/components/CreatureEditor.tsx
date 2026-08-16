@@ -374,7 +374,7 @@ export const CreatureEditor: React.FC<CreatureEditorProps> = ({
   const connectivity = getCreatureConnectivity(elements);
   const currentElementsCost = calculateElementsPrice(elements);
   const costDiff = currentElementsCost - initialElementsCost;
-  const currentFood = food ?? bankFood ?? (editingCreature?.foodEaten || 0);
+  const currentFood = typeof food === 'number' ? food : (typeof bankFood === 'number' ? bankFood : (editingCreature?.foodEaten ?? editingCreature?.bankFood ?? 0));
   // Available food points for building / replacing parts dynamically
   const availableFood = currentFood - costDiff;
   const refundedFromDismantling = Math.max(0, initialElementsCost - currentElementsCost);
